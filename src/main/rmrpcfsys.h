@@ -22,6 +22,11 @@ public:
 
 
 
+	enum class LinesFormat {
+		raw,
+		json,
+		svg
+	};
 
 protected:
 	std::filesystem::path root;
@@ -37,7 +42,7 @@ protected:
 
 	void listFiles(userver::PHttpServerRequest &req);
 	bool getFileInfo(userver::PHttpServerRequest &req, std::string_view id);
-	bool getLines(userver::PHttpServerRequest &req, std::string_view id, unsigned long page);
+	bool getLines(userver::PHttpServerRequest &req, std::string_view id, unsigned long page, LinesFormat fmt, int smooth);
 };
 
 #endif /* SRC_MAIN_RMRPCFSYS_H_ */

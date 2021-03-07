@@ -14,9 +14,13 @@
 #include <iterator>
 
 #include <imtjson/object.h>
+#include <imtjson/serializer.h>
 #include <imtjson/operations.h>
-#include "../shared/logOutput.h"
-#include "../userver/query_parser.h"
+#include <shared/logOutput.h>
+#include <shared/streams.h>
+#include <userver/query_parser.h>
+#include "csscolor.h"
+#include "rmparser.h"
 
 using ondra_shared::logError;
 using ondra_shared::logWarning;
@@ -78,16 +82,23 @@ void RmRpcFSys::initHttp(std::shared_ptr<RmRpcFSys> me, userver::HttpServer &htt
 		if (!req->allowMethods({"GET"})) return true;
 		userver::QueryParser qp(vpath);
 		auto page = qp["page"];
+		auto format = qp["format"];
+		auto smooth = qp["smooth"].getUInt();
 		auto id = vpathToFileID(qp.getPath());
 		if (id.empty()) return false;
-		return me->getLines(req, id, page.getUInt());
+		LinesFormat fmt;
+		if (format == "json") fmt = LinesFormat::json;
+		else if (format == "svg") fmt = LinesFormat::svg;
+		else fmt = LinesFormat::raw;
+		return me->getLines(req, id, page.getUInt(), fmt, smooth);
 
 	});
 }
 
 void RmRpcFSys::sendJSON(userver::PHttpServerRequest &req, json::Value json) {
 	req->setContentType("application/json");
-	req->send(json.stringify().str());
+	userver::Stream s = req->send();
+	json.serialize([&](int c){s.putChar(c);});
 }
 
 void RmRpcFSys::listFiles(userver::PHttpServerRequest &req) {
@@ -274,7 +285,7 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 	return true;
 }
 
-bool RmRpcFSys::getLines(userver::PHttpServerRequest &req, std::string_view id, unsigned long page) {
+bool RmRpcFSys::getLines(userver::PHttpServerRequest &req, std::string_view id, unsigned long page, LinesFormat fmt, int smooth) {
 	auto content_path = root/id;
 	content_path.replace_extension(".content");
 	json::Value content = readJSON(content_path);
@@ -282,5 +293,57 @@ bool RmRpcFSys::getLines(userver::PHttpServerRequest &req, std::string_view id, 
 	std::string thumbId = content["pages"][page].getString();
 	lines_path = lines_path / thumbId;
 	lines_path.replace_extension(".rm");
-	return req->sendFile(std::move(req), lines_path.native());
+
+	if (fmt == LinesFormat::raw) {
+		return req->sendFile(std::move(req), lines_path.native());
+	} else {
+
+		std::ifstream rmf(lines_path.native());
+		if (!rmf) return false;
+		Drawing drw;
+		drw.load_rm(rmf);
+		if (smooth) drw.smooth(smooth);
+		if (fmt == LinesFormat::json) {
+			auto out = drw.toJSON();
+			sendJSON(req, out);
+		} else {
+			auto mdata_path = lines_path.parent_path() / (lines_path.stem().string()+"-metadata.json");
+			json::Value layers = readJSON(mdata_path)["layers"];
+			Drawing::ColorDef colorDef;
+			std::string color_name;
+			int lrpos = 1;
+			for (json::Value lr: layers) {
+				auto name = lr["name"].getString();
+				auto colorpos = name.indexOf("/");
+				if (colorpos != name.npos) {
+					auto color = name.substr(colorpos+1);
+					for (char c: color) {
+						if (isspace(c)) break;
+						color_name.push_back(c);
+					}
+					if (!color_name.empty()) {
+						CSSColor baseColor(color_name);
+						CSSColor white("#FFFFFF");
+						white.a = baseColor.a;
+						CSSColor mixed = baseColor.mix(white);
+						colorDef.layerColors.push_back({lrpos,{
+							std::string(baseColor.getCSSColor()),
+							std::string(mixed.getCSSColor()),
+							std::string(white.getCSSColor()),
+							0
+						}});
+						color_name.clear();
+					}
+				}
+				lrpos++;
+			}
+
+			colorDef.prepare();
+			req->setContentTypeFromExt("svg");
+			userver::Stream s = req->send();
+			ondra_shared::ostream out([&](char c){s.putChar(c);});
+			drw.render_svg(out, colorDef);
+		}
+		return true;
+	}
 }
