@@ -1,0 +1,12 @@
+[submodule "src/userver"]
+	path = src/userver
+	url = https://github.com/ondra-novak/userver.git
+[submodule "src/userver_jsonrpc"]
+	path = src/userver_jsonrpc
+	url = https://github.com/ondra-novak/userver_jsonrpc.git
+[submodule "src/shared"]
+	path = src/shared
+	url = https://github.com/ondra-novak/ondra_shared.git
+[submodule "src/imtjson"]
+	path = src/imtjson
+	url = https://github.com/ondra-novak/imtjson.git

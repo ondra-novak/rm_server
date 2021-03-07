@@ -1,0 +1,37 @@
+#!/bin/sh
+
+
+BUILDTYPE=RELWITHDEBINFO
+if [ "$1" = "debug" ] ; then 
+    BUILDTYPE=DEBUG
+fi
+if [ "$1" = "nodebug" ] ; then
+    BUILDTYPE=RELEASE
+fi
+
+NPROC=`which nproc`
+if [ "$NPROC" = "" ] ; then
+	PROCS=2
+else
+	PROCS=`$NPROC`
+fi
+	
+	
+mkdir -p ./data
+mkdir -p ./secure_data
+mkdir -p ./log
+mkdir -p ./run
+
+if [ -f update_version ] ; then
+	GIT=`which git`
+	if [ "$GIT" != "" ] ; then
+    	    VER=`$GIT describe --tags`
+    	    cp update_version ./version.h
+	    echo " \"$VER\"" >> ./version.h
+	fi
+fi
+
+cmake -DCMAKE_BUILD_TYPE=$BUILDTYPE .
+echo "Building in $PROCS thread(s)"
+make all -j$PROCS
+echo Done >&2
