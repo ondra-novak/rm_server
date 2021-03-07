@@ -215,7 +215,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 	try {
 	std::filesystem::directory_iterator diriter(lines_path);
 	result.set("drawings",json::Value(json::array,std::filesystem::begin(diriter), std::filesystem::end(diriter), [&](const std::filesystem::directory_entry &entry){
-		if (entry.is_regular_file()) {
 			const std::filesystem::path &pathname = entry;
 			if (pathname.extension().string() == ".rm") {
 				auto stem = pathname.stem().string();
@@ -229,7 +228,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 					return json::Value(res);
 				}
 			}
-		}
 		return json::Value(json::undefined);
 	}).sort([](json::Value a, json::Value b){
 		return json::Value::compare(a["page"],b["page"]);
@@ -239,7 +237,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 		std::filesystem::directory_iterator diriter (thumb_path);
 	result.set("thumbnails",json::Value(json::array,std::filesystem::begin(diriter),
 				std::filesystem::end(diriter), [&](const std::filesystem::directory_entry &entry){
-		if (entry.is_regular_file()) {
 			const std::filesystem::path &pathname = entry;
 			if (pathname.extension().string() == ".jpg") {
 				auto stem = pathname.stem().string();
@@ -248,7 +245,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 					return json::Value(pg->second);
 				}
 			}
-		}
 		return json::Value(json::undefined);
 	}).sort([](json::Value a, json::Value b){
 		return json::Value::compare(a,b);
@@ -259,7 +255,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 		std::filesystem::directory_iterator diriter  (conv_path);
 	result.set("text_conversions",json::Value(json::array,std::filesystem::begin(diriter),
 				std::filesystem::end(diriter), [&](const std::filesystem::directory_entry &entry){
-		if (entry.is_regular_file()) {
 			const std::filesystem::path &pathname = entry;
 			if (pathname.extension().string() == ".json") {
 				auto stem = pathname.stem().string();
@@ -269,7 +264,6 @@ bool RmRpcFSys::getFileInfo(userver::PHttpServerRequest &req, std::string_view i
 					return json::Value(json::Object("page", pg->second)("text",jf["text"]));
 				}
 			}
-		}
 		return json::Value(json::undefined);
 	}).sort([](json::Value a, json::Value b){
 		return json::Value::compare(a["page"],b["page"]);
