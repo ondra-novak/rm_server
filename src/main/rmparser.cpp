@@ -129,9 +129,15 @@ json::Value Drawing::toJSON() const {
 	return ctx;
 }
 
+union ReadIntAsFLoat {
+	int32_t ival;
+	float fval;
+};
+
 float Drawing::readFloat32(const Stream &stream) {
-	int32_t n = readInt32(stream);
-	return *reinterpret_cast<float *>(&n);
+	ReadIntAsFLoat n;
+	n.ival = readInt32(stream);
+	return n.fval;
 }
 
 template<typename T>
@@ -359,8 +365,26 @@ void combineMasks(const Cont &mask_map, std::ostream &out) {
 void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 	out << R"hdr(<?xml version="1.0" encoding="UTF-8"?>)hdr";
 	out << "<svg viewBox=\"0 0 1404 1872\" xmlns=\"http://www.w3.org/2000/svg\">\r\n";
-	out << "<def><rect id=\"viewport\" width=\"1404\" height=\"1872\" /></def>";
-	out << R"flt(<filter id="blur"><feGaussianBlur in="SourceGraphic" stdDeviation="3" /></filter>)flt";
+	out << "<defs><rect id=\"viewport\" width=\"1404\" height=\"1872\" /></defs>";
+	out << R"css(<style>
+     .maskfig path {mix-blend-mode:lighten; }
+  </style>)css";
+	out << R"flt(<defs>
+     <filter id="pencilTexture">
+      <feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="7" stitchTiles="stitch" result="f1">
+      </feTurbulence>
+      <feColorMatrix type="matrix" values="0 0 0 0 1, 0 0 0 0 0, 0 0 0 0 0, 0 0 0 -1.4 1.5" result="f2">
+      </feColorMatrix>
+      <feComposite operator="in" in2="f2" in="SourceGraphic" result="f3">
+      </feComposite>
+      <feColorMatrix in="f3" type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0.5 0.5 0.5 3 -2" result="f5">
+      </feColorMatrix>
+      <feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="7" result="noise">
+      </feTurbulence>
+      <feDisplacementMap xChannelSelector="R" yChannelSelector="G" scale="5" in="f5" result="f4">
+      </feDisplacementMap>
+    </filter>
+  </defs>)flt";
 	int lrid = 1;
 	int elem_id = 1;
 	MaskQueue mask_map;
@@ -378,7 +402,7 @@ void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 	for (const Layer &lr: content.layers) {
 		out << "<g class=\"layer\">";
 		mask_map.clear();
-		out << "<def>";
+		out << "<defs>";
 		for (const Line &ln : lr.lines) {
 			int id = elem_id++;
 			switch (ln.type) {
@@ -393,25 +417,31 @@ void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 				default:break;
 			}
 		}
-		out <<"</def>";
-		int curMask = updateMask();
+		out <<"</defs>";
+		int curMask = 0;
 		for (const Line &ln : lr.lines) {
 			if (!mask_map.empty() && mask_map.front().first == &ln) {
 				mask_map.pop_front();
-				curMask = updateMask();
+				curMask = 0;
 			}
 			if (!ln.points.empty()) {
 				std::string color = def.getColor(lrid, ln.type, ln.color);
 				switch (ln.type) {
-				case Brush::Highlighter:highlighter_to_svg(ln, color, curMask, out);break;
-				case Brush::Fineliner:fineliner_to_svg(ln, color, curMask, out);break;
+				case Brush::Highlighter:
+					if (!curMask) curMask = updateMask();
+					highlighter_to_svg(ln, color, curMask, out);
+					break;
+				case Brush::Fineliner:
+					if (!curMask) curMask = updateMask();
+					fineliner_to_svg(ln, color, curMask, out);
+					break;
 				case Brush::BallPoint:
 				case Brush::Brush:
 				case Brush::Calligraphy:
 				case Brush::Marker:
 				case Brush::Pen:
 				case Brush::SharpPencil:
-				case Brush::TiltPencil:brush_to_svg(ln, color, curMask, mask_map, out);break;
+				case Brush::TiltPencil:brush_to_svg(ln, color, mask_map, out);break;
 				default:break;
 				}
 			}
@@ -422,12 +452,11 @@ void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 	out << "</svg>";
 }
 
-void Drawing::brush_to_svg2(const Line &ln, const std::string &color, const std::string &maskAttr, std::ostream &out, bool opacity_to_color) {
+void Drawing::brush_to_mask(const Line &ln, const std::string &attrs, std::ostream &out) {
 	out<<"<g fill=\"none\" ";
-	if (!color.empty()) out << "stroke=\"" << color << "\" ";
-	out << "stroke-linecap=\"round\" "
-			 << maskAttr <<
-			"class=\"" << strBrush[ln.type] << "\">";
+	out << "stroke-linecap=\"round\"  "
+			 << attrs <<
+			"class=\"maskfig " << strBrush[ln.type] << "\">";
 	auto iter = ln.points.begin();
 	auto end = ln.points.end();
 	float from_x= iter->x;
@@ -441,10 +470,10 @@ void Drawing::brush_to_svg2(const Line &ln, const std::string &color, const std:
 		float opacity;
 		switch (ln.type) {
 		case Brush::BallPoint: width = iter->width;
-							   opacity = std::pow(iter->pressure,5.0f)+0.7f;
+							   opacity = std::pow(iter->pressure,2.0f)+0.5;
 							   break;
 		case Brush::TiltPencil: width = iter->width;
-							   opacity = std::pow(iter->pressure,1.0f);
+							   opacity = std::pow(iter->pressure,1.5f);
 							   break;
 
 		default: width  = iter->width;
@@ -452,11 +481,9 @@ void Drawing::brush_to_svg2(const Line &ln, const std::string &color, const std:
 		}
 		out << "<path stroke-width=\"" << width * width_factor << "\" "
 		    << "d=\"M " << from_x << " " << from_y << " L " << to_x << " " << to_y <<"\" ";
-		if (opacity_to_color) {
-			int col = std::min(255,static_cast<int>(opacity * 255.0));
-			col = col | (col << 8) | col << 16;
-			out << "stroke=\"#" << std::setfill('0') << std::setw(6) << std::hex << col << "\" " << std::dec;;
-		}
+		int col = std::min(255,static_cast<int>(opacity * 255.0));
+		col = (col << 0)| (col << 8) | (col << 16);
+		out << "stroke=\"#" << std::setfill('0') << std::setw(6) << std::hex << col << "\" " << std::dec;;
 		out << "/>";
 
 		from_x= to_x;
@@ -467,21 +494,19 @@ void Drawing::brush_to_svg2(const Line &ln, const std::string &color, const std:
 
 }
 
-void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId, const MaskQueue &mqueue, std::ostream &out) {
+void Drawing::brush_to_svg(const Line &ln, const std::string &color, const MaskQueue &mqueue, std::ostream &out) {
 	std::string maskAttr;
-	if (ln.type == Brush::BallPoint || ln.type == Brush::TiltPencil) {
-		std::string commonId = std::to_string(reinterpret_cast<std::uintptr_t>(&ln));
-		out << "<mask id=\"brush_" << commonId << "\">";
-		out << "<use href=\"#viewport\" fill=\"black\" />";
-		brush_to_svg2(ln,std::string(),"filter=\"url(#blur)\" ",out,true);
-		combineMasks(mqueue, out);
-		out << "</mask>";
-		brush_to_svg2(ln,color,"mask=\"url(#brush_"+commonId+")\" ",out,false);
+	std::string commonId = std::to_string(reinterpret_cast<std::uintptr_t>(&ln));
+	out << "<mask id=\"fig_" << commonId << "\">";
+	if (ln.type == Brush::TiltPencil || ln.type == Brush::SharpPencil) {
+		brush_to_mask(ln,"filter=\"url(#pencilTexture)\" ",out);
 	} else {
-		maskAttr = putMaskAttr(maskId);
-		brush_to_svg2(ln,color,maskAttr,out, false);
+		brush_to_mask(ln,"",out);
 	}
-
+	combineMasks(mqueue, out);
+	out << "</mask>";
+	auto box = ln.getBounds();
+	out << "<rect mask=\"url(#fig_" << commonId << "\" x=\"" << box.left << "\" y=\"" << box.top << "\" width=\"" << (box.right-box.left) << "\" height=\"" << (box.bottom-box.top) << "\" fill=\"" <<color<< "\" />";
 }
 
 Drawing::Box Drawing::Box::merge(const Box &other) const {
@@ -524,10 +549,10 @@ Drawing::Box Drawing::Line::getBounds() const {
 	if (points.empty()) return {1,1,0,0};
 	Box bx {points[0].x,points[0].y, points[0].x, points[0].y};
 	for (const auto &pt: points) {
-		bx.left = std::min(bx.left, pt.x);
-		bx.top= std::min(bx.top, pt.y);
-		bx.right = std::max(bx.right, pt.x);
-		bx.bottom= std::max(bx.bottom, pt.y);
+		bx.left = std::min(bx.left, pt.x-pt.width);
+		bx.top= std::min(bx.top, pt.y-pt.width);
+		bx.right = std::max(bx.right, pt.x+pt.width);
+		bx.bottom= std::max(bx.bottom, pt.y+pt.width);
 	}
 	return bx;
 }
