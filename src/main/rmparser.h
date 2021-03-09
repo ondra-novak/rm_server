@@ -8,6 +8,7 @@
 #ifndef SRC_MAIN_RMPARSER_H_
 #define SRC_MAIN_RMPARSER_H_
 
+#include <deque>
 #include <iostream>
 #include <vector>
 
@@ -125,6 +126,8 @@ public:
 protected:
 
 	Content content;
+	using MaskQueue = std::deque<std::pair<const Line *, int> >;
+
 
 	static int readInt32(const Stream &stream);
 	static float readFloat32(const Stream &stream);
@@ -135,7 +138,8 @@ protected:
 
 	static void highlighter_to_svg(const Line &ln, const std::string &color, int maskId, std::ostream &out);
 	static void fineliner_to_svg(const Line &ln, const std::string &color, int maskId, std::ostream &out);
-	static void brush_to_svg(const Line &ln, const std::string &color, int maskId, std::ostream &out);
+	static void brush_to_svg(const Line &ln, const std::string &color, int maskId, const MaskQueue &mqueue, std::ostream &out);
+	static void brush_to_svg2(const Line &ln, const std::string &color, const std::string &maskAttr, std::ostream &out, bool opacity_to_color);
 	static void define_eraser_mask(const Line &ln, int id, std::ostream &out);
 	static void define_eraseArea_mask(const Line &ln, int id, std::ostream &out);
 

@@ -9,6 +9,7 @@
 #include "rmparser.h"
 
 #include <cmath>
+#include <iomanip>
 #include <queue>
 
 #include <imtjson/object.h>
@@ -347,23 +348,29 @@ void Drawing::define_eraseArea_mask(const Line &ln, int id, std::ostream &out) {
 
 }
 
+template<typename Cont>
+void combineMasks(const Cont &mask_map, std::ostream &out) {
+	for (const auto &m: mask_map) {
+		out << "<use href=\"#eraser_" << m.second << "\" />";
+	}
+
+}
+
 void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
-
-
 	out << R"hdr(<?xml version="1.0" encoding="UTF-8"?>)hdr";
 	out << "<svg viewBox=\"0 0 1404 1872\" xmlns=\"http://www.w3.org/2000/svg\">\r\n";
+	out << "<def><rect id=\"viewport\" width=\"1404\" height=\"1872\" /></def>";
+	out << R"flt(<filter id="blur"><feGaussianBlur in="SourceGraphic" stdDeviation="3" /></filter>)flt";
 	int lrid = 1;
 	int elem_id = 1;
-	std::deque<std::pair<const Line *, int> > mask_map;
+	MaskQueue mask_map;
 
 	auto updateMask = [&]{
 			if (mask_map.empty()) return 0;
 			int id = elem_id++;
 			out << "<mask id=\"mask_" << id << "\">";
-			out << "<rect width=\"1404\" height=\"1872\" fill=\"white\"/>";
-			for (const auto &m: mask_map) {
-				out << "<use href=\"#eraser_" << m.second << "\" />";
-			}
+			out << "<use href=\"#viewport\" fill=\"white\" />";
+			combineMasks(mask_map, out);
 			out << "</mask>";
 			return id;
 	};
@@ -404,7 +411,7 @@ void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 				case Brush::Marker:
 				case Brush::Pen:
 				case Brush::SharpPencil:
-				case Brush::TiltPencil:brush_to_svg(ln, color, curMask, out);break;
+				case Brush::TiltPencil:brush_to_svg(ln, color, curMask, mask_map, out);break;
 				default:break;
 				}
 			}
@@ -415,11 +422,11 @@ void Drawing::render_svg(std::ostream &out, const ColorDef &def) const {
 	out << "</svg>";
 }
 
-void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId, std::ostream &out) {
-	out<<"<g fill=\"none\" "
-			"stroke=\"" << color << "\" "
-			"stroke-linecap=\"round\" "
-			 << putMaskAttr(maskId) <<
+void Drawing::brush_to_svg2(const Line &ln, const std::string &color, const std::string &maskAttr, std::ostream &out, bool opacity_to_color) {
+	out<<"<g fill=\"none\" ";
+	if (!color.empty()) out << "stroke=\"" << color << "\" ";
+	out << "stroke-linecap=\"round\" "
+			 << maskAttr <<
 			"class=\"" << strBrush[ln.type] << "\">";
 	auto iter = ln.points.begin();
 	auto end = ln.points.end();
@@ -437,7 +444,7 @@ void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId,
 							   opacity = std::pow(iter->pressure,5.0f)+0.7f;
 							   break;
 		case Brush::TiltPencil: width = iter->width;
-							   opacity = std::pow(iter->pressure,4.0f);
+							   opacity = std::pow(iter->pressure,1.0f);
 							   break;
 
 		default: width  = iter->width;
@@ -445,7 +452,11 @@ void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId,
 		}
 		out << "<path stroke-width=\"" << width * width_factor << "\" "
 		    << "d=\"M " << from_x << " " << from_y << " L " << to_x << " " << to_y <<"\" ";
-		if (opacity<1.0f) out << "opacity=\"" << opacity << "\" ";
+		if (opacity_to_color) {
+			int col = std::min(255,static_cast<int>(opacity * 255.0));
+			col = col | (col << 8) | col << 16;
+			out << "stroke=\"#" << std::setfill('0') << std::setw(6) << std::hex << col << "\" " << std::dec;;
+		}
 		out << "/>";
 
 		from_x= to_x;
@@ -453,6 +464,24 @@ void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId,
 		++iter;
 	}
 	out<<"</g>";
+
+}
+
+void Drawing::brush_to_svg(const Line &ln, const std::string &color, int maskId, const MaskQueue &mqueue, std::ostream &out) {
+	std::string maskAttr;
+	if (ln.type == Brush::BallPoint || ln.type == Brush::TiltPencil) {
+		std::string commonId = std::to_string(reinterpret_cast<std::uintptr_t>(&ln));
+		out << "<mask id=\"brush_" << commonId << "\">";
+		out << "<use href=\"#viewport\" fill=\"black\" />";
+		brush_to_svg2(ln,std::string(),"filter=\"url(#blur)\" ",out,true);
+		combineMasks(mqueue, out);
+		out << "</mask>";
+		brush_to_svg2(ln,color,"mask=\"url(#brush_"+commonId+")\" ",out,false);
+	} else {
+		maskAttr = putMaskAttr(maskId);
+		brush_to_svg2(ln,color,maskAttr,out, false);
+	}
+
 }
 
 Drawing::Box Drawing::Box::merge(const Box &other) const {

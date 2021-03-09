@@ -22,6 +22,7 @@
 #include "csscolor.h"
 #include "rmparser.h"
 
+using ondra_shared::logDebug;
 using ondra_shared::logError;
 using ondra_shared::logWarning;
 
@@ -343,6 +344,7 @@ bool RmRpcFSys::getLines(userver::PHttpServerRequest &req, std::string_view id, 
 			userver::Stream s = req->send();
 			ondra_shared::ostream out([&](char c){s.putChar(c);});
 			drw.render_svg(out, colorDef);
+			s.flush();
 		}
 		return true;
 	}
