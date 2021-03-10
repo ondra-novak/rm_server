@@ -10,6 +10,7 @@ set(USERVER_NO_SSL 1)
 add_subdirectory (src/userver  EXCLUDE_FROM_ALL)
 add_subdirectory (src/imtjson/src/imtjson  EXCLUDE_FROM_ALL)
 add_subdirectory (src/userver_jsonrpc  EXCLUDE_FROM_ALL)
+add_subdirectory (src/pdf)
 add_subdirectory (src/main) 
 
 
